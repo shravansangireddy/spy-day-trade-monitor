@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPY Intraday Options Monitor</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --border: #2b3444;
+    --text: #e6edf3; --dim: #8b98a9; --green: #3fb950; --red: #f85149;
+    --amber: #d29922; --blue: #58a6ff; --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 5;
+  }
+  .sym { font-size: 22px; font-weight: 700; letter-spacing: 1px; }
+  .price { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .up { color: var(--green); } .down { color: var(--red); }
+  .hstat { display: flex; flex-direction: column; min-width: 90px; }
+  .hstat .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+  .hstat .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .clock { margin-left: auto; text-align: right; }
+  .clock .time { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+  .badge.paper { background: #1f3d2b; color: var(--green); border: 1px solid var(--green); }
+  .badge.live  { background: #4a1d1d; color: var(--red);   border: 1px solid var(--red); }
+  .badge.session { border: 1px solid var(--border); background: var(--panel2); color: var(--text); }
+  .badge.session.open_drive, .badge.session.power_hour { color: var(--green); border-color: var(--green); }
+  .badge.session.lunch_chop { color: var(--amber); border-color: var(--amber); }
+  .badge.session.closed_avoid { color: var(--dim); }
+  .badge.stub { background: #3a2d10; color: var(--amber); border: 1px solid var(--amber); }
+  .refresh-ctl {
+    display: flex; flex-direction: column; gap: 2px; min-width: 110px;
+  }
+  .refresh-ctl label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+  .refresh-ctl select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .refresh-ctl select:focus { outline: 1px solid var(--blue); }
+  .refresh-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .refresh-btns button {
+    background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
+    border-radius: 14px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer;
+  }
+  .refresh-btns button.on { color: var(--blue); border-color: var(--blue); background: rgba(88,166,255,.12); }
+  .refresh-btns button:hover { color: var(--text); }
+
+  /* ---------- layout ---------- */
+  .wrap { display: grid; grid-template-columns: 1fr 280px; gap: 16px; padding: 16px 20px; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 1000px) { .wrap { grid-template-columns: 1fr; } }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; align-content: start; }
+
+  /* ---------- strategy cards ---------- */
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; transition: border-color .3s;
+  }
+  .card.active-CALL { border-color: var(--green); box-shadow: 0 0 0 1px var(--green) inset; }
+  .card.active-PUT  { border-color: var(--red);   box-shadow: 0 0 0 1px var(--red) inset; }
+  .card.dim { opacity: .55; }
+  .card h3 { font-size: 15px; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .dir { font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 4px; }
+  .dir.CALL { background: #1f3d2b; color: var(--green); }
+  .dir.PUT  { background: #4a1d1d; color: var(--red); }
+  .dir.EXIT { background: #4a3a10; color: var(--amber); }
+  .nosig { color: var(--dim); font-style: italic; padding: 6px 0; }
+  .row { display: flex; gap: 8px; margin: 5px 0; }
+  .row .k { color: var(--dim); min-width: 84px; font-size: 12px; flex-shrink: 0; padding-top: 1px; }
+  .row .v { font-size: 13px; }
+  .conf-bar { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; margin-top: 3px; }
+  .conf-fill { height: 100%; background: linear-gradient(90deg, var(--amber), var(--green)); }
+  .risk { color: var(--amber); }
+  .flag { display: block; color: var(--amber); font-size: 12px; margin-top: 4px; }
+  .contract { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin-top: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .exit-banner { background: #4a3a10; color: var(--amber); border-radius: 6px; padding: 6px 10px; font-weight: 700; margin-bottom: 8px; }
+
+  /* ---------- sidebar ---------- */
+  aside .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  aside h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-bottom: 8px; }
+  aside ul { list-style: none; }
+  aside li { padding: 4px 0; font-size: 13px; border-bottom: 1px dashed var(--border); }
+  aside li:last-child { border-bottom: none; }
+  .countdown { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .countdown.warn { color: var(--amber); } .countdown.crit { color: var(--red); }
+  footer { text-align: center; color: var(--dim); font-size: 12px; padding: 10px 0 24px; }
+  #err { display: none; background: #4a1d1d; color: var(--red); padding: 8px 20px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="sym" id="sym">SPY</span>
+  <span class="price" id="price">—</span>
+  <div class="hstat"><span class="lbl">Chg</span><span class="val" id="chg">—</span></div>
+  <div class="hstat"><span class="lbl">VWAP</span><span class="val" id="vwap">—</span></div>
+  <div class="hstat"><span class="lbl">Volume</span><span class="val" id="vol">—</span></div>
+  <div class="hstat"><span class="lbl">Vol Pace</span><span class="val" id="volratio">—</span></div>
+  <div class="hstat"><span class="lbl">Day Range</span><span class="val" id="range">—</span></div>
+  <div class="hstat"><span class="lbl">Pre-mkt H/L</span><span class="val" id="pm">—</span></div>
+  <span class="badge session" id="session">—</span>
+  <span class="badge" id="mode">—</span>
+  <span class="badge stub" id="srcbadge" style="display:none">SIMULATED DATA</span>
+  <div class="refresh-ctl">
+    <label for="refreshSelect">Refresh</label>
+    <select id="refreshSelect" title="How often to reload signals">
+      <option value="5">Every 5s</option>
+      <option value="10">Every 10s</option>
+      <option value="15">Every 15s</option>
+      <option value="30">Every 30s</option>
+      <option value="60" selected>Every 1 min</option>
+      <option value="120">Every 2 min</option>
+      <option value="300">Every 5 min</option>
+    </select>
+  </div>
+  <div class="clock"><div class="time" id="clock">—</div><div style="font-size:11px;color:var(--dim)" id="clockdate"></div></div>
+</header>
+<div id="err"></div>
+
+<div class="wrap">
+  <main class="cards" id="cards"></main>
+
+  <aside>
+    <div class="panel">
+      <h4>Flat-by-4PM Countdown</h4>
+      <div>No new entries in:</div>
+      <div class="countdown" id="flatten">—</div>
+      <div style="margin-top:6px">Market close in:</div>
+      <div class="countdown" id="close">—</div>
+    </div>
+    <div class="panel">
+      <h4>Session</h4>
+      <div id="sessionwindow" style="font-size:13px">—</div>
+    </div>
+    <div class="panel">
+      <h4>Entry / Exit Filters</h4>
+      <div id="filters" style="font-size:12px;line-height:1.55;color:var(--text)"></div>
+    </div>
+    <div class="panel">
+      <h4>Rule Reminders</h4>
+      <ul id="rules"></ul>
+    </div>
+    <div class="panel">
+      <h4>Refresh interval</h4>
+      <div class="refresh-btns" id="refreshBtns"></div>
+      <div style="font-size:11px;color:var(--dim);margin-top:8px" id="refreshHint">Saved in this browser.</div>
+    </div>
+    <div class="panel">
+      <h4>Data</h4>
+      <div style="font-size:12px;color:var(--dim)" id="meta">—</div>
+    </div>
+  </aside>
+</div>
+
+<footer>SPY intraday options signal monitor — informational only, not financial advice. Paper mode default.</footer>
+
+<script>
+"use strict";
+const REFRESH_KEY = "spyMonitor.refreshSeconds";
+const REFRESH_OPTIONS = [
+  { sec: 5,   label: "5s" },
+  { sec: 10,  label: "10s" },
+  { sec: 15,  label: "15s" },
+  { sec: 30,  label: "30s" },
+  { sec: 60,  label: "1 min" },
+  { sec: 120, label: "2 min" },
+  { sec: 300, label: "5 min" },
+];
+function loadRefreshSec() {
+  const n = Number(localStorage.getItem(REFRESH_KEY));
+  if (REFRESH_OPTIONS.some(o => o.sec === n)) return n;
+  return 60; // default 1 minute
+}
+let refreshSec = loadRefreshSec();
+let refreshMs = refreshSec * 1000;
+let flattenSecs = null, closeSecs = null, lastTick = Date.now();
+let pollTimer = null;
+
+const $ = id => document.getElementById(id);
+const fmtVol = v => v == null ? "—" : v >= 1e9 ? (v/1e9).toFixed(2)+"B" : v >= 1e6 ? (v/1e6).toFixed(1)+"M" : v >= 1e3 ? (v/1e3).toFixed(0)+"K" : v;
+const fmtSecs = s => {
+  if (s == null) return "—";
+  if (s <= 0) return "NOW";
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+  return (h ? h+"h " : "") + String(m).padStart(2,"0") + "m " + String(ss).padStart(2,"0") + "s";
+};
+
+function renderHeader(h, risk, meta) {
+  $("sym").textContent = h.symbol;
+  $("price").textContent = "$" + h.price.toFixed(2);
+  $("price").className = "price " + (h.change_pct >= 0 ? "up" : "down");
+  $("chg").textContent = h.change_pct == null ? "—" : (h.change_pct >= 0 ? "+" : "") + h.change_pct.toFixed(2) + "%";
+  $("chg").className = "val " + (h.change_pct >= 0 ? "up" : "down");
+  $("vwap").textContent = h.vwap == null ? "—" : "$" + h.vwap.toFixed(2);
+  $("vol").textContent = fmtVol(h.day_volume) + " / " + fmtVol(h.avg_daily_volume) + " avg";
+  $("volratio").textContent = h.day_volume_ratio == null ? "—" : Math.round(h.day_volume_ratio*100) + "% of pace";
+  $("range").textContent = (h.intraday_low && h.intraday_high) ? h.intraday_low.toFixed(2) + " – " + h.intraday_high.toFixed(2) : "—";
+  $("pm").textContent = (h.premarket_low && h.premarket_high) ? h.premarket_low.toFixed(2) + " – " + h.premarket_high.toFixed(2) : "—";
+
+  const tagText = {open_drive:"OPEN DRIVE", lunch_chop:"LUNCH CHOP", power_hour:"POWER HOUR", closed_avoid:"MARKET CLOSED"};
+  $("session").textContent = tagText[h.session_tag] || h.session_tag;
+  $("session").className = "badge session " + h.session_tag;
+
+  $("mode").textContent = risk.paper_mode ? "PAPER" : "LIVE";
+  $("mode").className = "badge " + (risk.paper_mode ? "paper" : "live");
+  // Show SIMULATED only for stub; highlight Schwab vs Yahoo in meta below
+  $("srcbadge").style.display = meta.provider_used === "stub" ? "" : "none";
+  $("srcbadge").textContent = meta.provider_used === "stub" ? "SIMULATED DATA" : "";
+
+  const parts = h.market_clock_et.split("  ");
+  $("clock").textContent = parts[1] || h.market_clock_et;
+  $("clockdate").textContent = (parts[0] || "") + " · ET";
+}
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+function renderCards(signals) {
+  const cards = $("cards");
+  cards.innerHTML = "";
+  for (const s of signals) {
+    const card = document.createElement("div");
+    const sig = s.signal;
+    let cls = "card";
+    if (sig) {
+      cls += sig.action === "EXIT" ? " active-EXIT" : " active-" + sig.direction;
+      if (sig.deemphasize) cls += " dim";
+    }
+    card.className = cls;
+
+    if (!sig) {
+      card.innerHTML = `<h3>${esc(s.strategy)}</h3>
+        <div class="nosig">no signal — conditions not met</div>
+        <div class="row"><span class="k">Why</span><span class="v" style="color:var(--dim)">${esc(s.no_signal_reason)}</span></div>`;
+    } else {
+      const dirBadge = sig.action === "EXIT"
+        ? `<span class="dir EXIT">EXIT</span>`
+        : `<span class="dir ${sig.direction}">${sig.direction}</span>`;
+      const c = sig.contract;
+      const contractHtml = c ? `<div class="contract">
+            Suggested leg: <b>${esc(sig.direction)} $${c.strike} exp ${esc(c.expiry)}</b> (${c.dte} DTE)<br>
+            Δ ${c.delta} · IV ${(c.iv*100).toFixed(1)}% · OI ${fmtVol(c.open_interest)} ·
+            bid/ask ${c.bid.toFixed(2)}/${c.ask.toFixed(2)} (spread $${c.spread.toFixed(2)})
+          </div>` : "";
+      const flags = (sig.flags || []).map(f => `<span class="flag">⚠ ${esc(f)}</span>`).join("");
+      const exitBanner = sig.action === "EXIT" ? `<div class="exit-banner">EXIT — no new entries, flatten before close.</div>` : "";
+      card.innerHTML = `<h3>${esc(sig.strategy)} ${dirBadge}</h3>
+        ${exitBanner}
+        <div class="row"><span class="k">Entry</span><span class="v">$${sig.entry_price.toFixed(2)} — ${esc(sig.entry_reason)}</span></div>
+        <div class="row"><span class="k">Exit</span><span class="v">target $${sig.exit_target?.toFixed(2)} · stop $${sig.exit_stop?.toFixed(2)}<br>${esc(sig.exit_reason)}</span></div>
+        <div class="row"><span class="k">Key risk</span><span class="v risk">${esc(sig.key_risk)}</span></div>
+        <div class="row"><span class="k">Risk cap</span><span class="v">${esc(sig.risk_note)}</span></div>
+        <div class="row"><span class="k">Session</span><span class="v">${esc(sig.session_tag)}</span></div>
+        <div class="row"><span class="k">Confidence</span><span class="v" style="flex:1">${(sig.confidence*100).toFixed(0)}%
+          <div class="conf-bar"><div class="conf-fill" style="width:${sig.confidence*100}%"></div></div></span></div>
+        ${flags}${contractHtml}`;
+    }
+    cards.appendChild(card);
+  }
+}
+
+function refreshLabel(sec) {
+  if (sec < 60) return `every ${sec}s`;
+  if (sec === 60) return "every 1 min";
+  if (sec % 60 === 0) return `every ${sec / 60} min`;
+  return `every ${sec}s`;
+}
+
+function applyRefreshUI() {
+  const sel = $("refreshSelect");
+  if (sel) sel.value = String(refreshSec);
+  const btns = $("refreshBtns");
+  if (btns) {
+    btns.querySelectorAll("button").forEach(b => {
+      b.classList.toggle("on", Number(b.dataset.sec) === refreshSec);
+    });
+  }
+  const hint = $("refreshHint");
+  if (hint) hint.textContent = `Polling ${refreshLabel(refreshSec)} · saved in this browser`;
+}
+
+function setRefreshSec(sec, { restart = true } = {}) {
+  const n = Number(sec);
+  if (!REFRESH_OPTIONS.some(o => o.sec === n)) return;
+  refreshSec = n;
+  refreshMs = n * 1000;
+  localStorage.setItem(REFRESH_KEY, String(n));
+  applyRefreshUI();
+  if (restart) schedulePoll(true);
+}
+
+function renderFilters(filters) {
+  const el = $("filters");
+  if (!filters) { el.textContent = "—"; return; }
+  const o = filters.options || {}, x = filters.exits || {}, e = filters.entry || {};
+  el.innerHTML = `
+    <div style="margin-bottom:8px"><b style="color:var(--dim)">Option leg</b><br>
+      DTE ${esc(o.dte)} · ${esc(o.delta)} · target Δ ${o.target_delta ?? "—"}<br>
+      max spread $${Number(o.max_option_spread ?? 0).toFixed(2)} · scalp ≤ $${Number(o.scalp_max_option_spread ?? 0).toFixed(2)}<br>
+      min OI ${o.min_open_interest ?? 0}
+    </div>
+    <div style="margin-bottom:8px"><b style="color:var(--dim)">Exits</b><br>
+      target ${x.target_atr_mult}×ATR · stop ${x.stop_atr_mult}×ATR (floor $${Number(x.min_atr_floor ?? 0).toFixed(2)})<br>
+      flatten ${esc(x.flatten_et)} · close ${esc(x.market_close_et)} · scalp hold ${x.scalp_max_hold_minutes}m
+    </div>
+    <div><b style="color:var(--dim)">Entries</b><br>
+      mom ≥ ${e.momentum_pct_5min}% / ${e.volume_spike_mult}× vol · BO ${e.breakout_volume_mult}× vol<br>
+      VWAP pace ≥ ${(Number(e.vwap_min_volume_ratio ?? 0) * 100).toFixed(0)}% · gap ≥ ${e.gap_pct_threshold}% (${e.gap_window_minutes}m)<br>
+      max risk ${e.max_risk_pct}%
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--dim)">Edit all keys in <code>main.py</code> CONFIG</div>`;
+}
+
+function renderSidebar(risk, meta, filters) {
+  flattenSecs = risk.seconds_to_flatten;
+  closeSecs = risk.seconds_to_close;
+  lastTick = Date.now();
+  tickCountdowns();
+  $("sessionwindow").textContent = risk.session_window;
+  $("rules").innerHTML = risk.rules.map(r => `<li>${esc(r)}</li>`).join("");
+  renderFilters(filters);
+  const srcLabel = meta.provider_used === "schwab" ? "Charles Schwab (live)"
+    : meta.provider_used === "yahoo" ? "Yahoo Finance"
+    : meta.provider_used === "stub" ? "SIMULATED stub"
+    : esc(meta.provider_used);
+  $("meta").innerHTML = `provider: <b>${srcLabel}</b> (mode: ${esc(meta.provider_configured)})<br>` +
+    (meta.fallback_reason ? `note: ${esc(meta.fallback_reason)}<br>` : "") +
+    `Δ ${esc((meta.delta_range || []).join("–"))} · DTE ${esc((meta.dte_range || []).join("–"))}<br>` +
+    `refresh: ${refreshLabel(refreshSec)} (UI)<br>updated: ${new Date(meta.generated_at).toLocaleTimeString()}`;
+}
+
+function tickCountdowns() {
+  const elapsed = Math.floor((Date.now() - lastTick) / 1000);
+  const f = flattenSecs == null ? null : flattenSecs - elapsed;
+  const c = closeSecs == null ? null : closeSecs - elapsed;
+  const fEl = $("flatten"), cEl = $("close");
+  fEl.textContent = fmtSecs(f); cEl.textContent = fmtSecs(c);
+  fEl.className = "countdown" + (f != null && f <= 0 ? " crit" : f != null && f < 1800 ? " warn" : "");
+  cEl.className = "countdown" + (c != null && c < 900 ? " crit" : "");
+}
+setInterval(tickCountdowns, 1000);
+
+function schedulePoll(immediate = false) {
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+  if (immediate) poll();
+  else pollTimer = setTimeout(poll, refreshMs);
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/api/signals");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    renderHeader(data.header, data.risk, data.meta);
+    renderCards(data.signals);
+    renderSidebar(data.risk, data.meta, data.filters);
+    $("err").style.display = "none";
+  } catch (e) {
+    $("err").textContent = "Failed to refresh: " + e.message + " — retrying…";
+    $("err").style.display = "block";
+  } finally {
+    schedulePoll(false);
+  }
+}
+
+// Wire refresh controls
+(function initRefreshControls() {
+  const btns = $("refreshBtns");
+  REFRESH_OPTIONS.forEach(o => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.sec = String(o.sec);
+    b.textContent = o.label;
+    b.onclick = () => setRefreshSec(o.sec);
+    btns.appendChild(b);
+  });
+  $("refreshSelect").addEventListener("change", e => setRefreshSec(e.target.value));
+  applyRefreshUI();
+})();
+
+poll();
+</script>
+</body>
+</html>

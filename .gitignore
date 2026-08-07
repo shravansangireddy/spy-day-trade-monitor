@@ -1,0 +1,28 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Secrets & local state
+.env
+.env.*
+!.env.example
+*.pem
+certs/*
+!certs/.gitkeep
+data/*
+!data/.gitkeep
+*.db
+*.db-shm
+*.db-wal
+
+# Logs / OS
+*.log
+*.err
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
